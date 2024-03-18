@@ -259,7 +259,7 @@ def main():
     args = verify_input_args(parser.parse_args())
     set_seed(args.seed)
     if not args.no_wandb:
-        wandb.init(project='weak_ref_seg', name = args.remark, group=args.wandb_group, entity='ise', config=args) 
+        wandb.init(project='weak_ref_seg', name = args.remark, group=args.wandb_group, entity='jinwoo-kim', config=args) 
         wandb.config.update(args) 
     log_dir = osp.join('./logs', args.remark)
     if not osp.exists(log_dir):
