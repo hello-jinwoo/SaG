@@ -40,6 +40,7 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
     losses_dict = dict()
     losses_dict['cm_loss'] = AverageMeter()
     losses_dict['recon'] = AverageMeter()
+    losses_dict['mtp'] = AverageMeter()
     
     for itr, data in enumerate(data_loader):
         total_iter += 1
@@ -54,6 +55,23 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
 
         with torch.cuda.amp.autocast(enabled=args.amp):
             cm_feat, img_emb, txt_emb, img_feat_recon, img_feat, txt_bert = model.forward(img, txt, txt_len) 
+            # MTP
+            MTP_init_epoch = 10
+            MTP_static = False
+            if epoch < MTP_init_epoch:
+                contamination_std = 0.
+            else:
+                if MTP_static:
+                    contamination_std = 5
+                else: # scheduled std
+                    contamination_std = min(0.5 * epoch-(MTP_init_epoch), 10)
+            recon_img_slot, orig_img_slot = model.masked_token_prediction(img_emb, txt_emb, cm_feat, 4, contamination_std)
+            if itr == 0:
+                print("@@ norm of img_slot:", torch.mean(torch.norm(img_emb, dim=-1)))
+                print("@@ norm of txt_emb:", torch.mean(torch.norm(txt_emb, dim=-1)))
+                print("@@ norm of cm_feat:", torch.mean(torch.norm(cm_feat, dim=-1)))
+                print("## norm of MTP_orig_img_slot:", torch.mean(torch.norm(orig_img_slot, dim=-1)))
+                print("## norm of MTP_recon_img_slot:", torch.mean(torch.norm(recon_img_slot, dim=-1)))
             # Use pre-extracted text embedding from external LM for sampling
             if args.pre_bertemb:
                 bertemb_list = []
@@ -74,6 +92,14 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
             recon_loss = recon_criterion(img_feat_recon, img_feat.detach())
             loss_dict['recon'] = recon_loss
             loss = loss + recon_weight * recon_loss
+
+            # MTP
+            # TODO
+            if epoch >= MTP_init_epoch:
+                mtp_loss = recon_criterion(recon_img_slot, orig_img_slot.detach())
+                loss_dict['mtp'] = mtp_loss
+                mtp_weight = min(0.02 * (epoch-MTP_init_epoch), 0.5)
+                loss = loss + mtp_weight * mtp_loss 
 
             if total_iter < args.lr_warmup_iter:
                 loss *= float(total_iter) / args.lr_warmup_iter
@@ -120,6 +146,7 @@ def validation(epoch, data_loader, model, criterion, recon_criterion, recon_weig
         losses_dict = dict()
         losses_dict['cm_loss'] = AverageMeter()
         losses_dict['recon'] = AverageMeter()
+        # losses_dict['mtp'] = AverageMeter()
             
         for _, data in tqdm(enumerate(data_loader)):
             img, txt, txt_len, _ = data
@@ -127,10 +154,18 @@ def validation(epoch, data_loader, model, criterion, recon_criterion, recon_weig
             
             with torch.cuda.amp.autocast(enabled=args.amp):
                 cm_feat, img_emb, txt_emb, img_feat_recon, img_feat, txt_bert = model.forward(img, txt, txt_len) 
+                # # MTP
+                # recon_img_slot, orig_img_slot = model.masked_token_prediction(img_emb, txt_emb, cm_feat, 4)
 
                 loss, loss_dict = criterion(cm_feat, txt_emb, img_emb, txt_bert=txt_bert)
                 recon_loss = recon_criterion(img_feat_recon, img_feat.clone().detach())
                 loss_dict['recon'] = recon_loss
+
+                # # MTP
+                # mtp_loss = recon_criterion(recon_img_slot, orig_img_slot)
+                # loss_dict['mtp'] = mtp_loss
+                # mtp_weight = 0.5 # TODO
+                # loss = loss + mtp_weight * mtp_loss 
 
                 loss = loss + recon_weight * recon_loss
 

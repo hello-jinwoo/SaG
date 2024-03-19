@@ -137,6 +137,22 @@ class CrossModalAttentionRecon(nn.Module):
         )
 
         self.txt_l2 = args.info_txt_l2
+
+        self.tpa_self = None # token predicting attention
+        # if args.tpa_self_attn: # TODO
+        if True:
+            self.tpa_self = TransformerLayer(
+                query_dim=in_dim+1, # +1 for mask token
+                ff_dim=in_dim+1,
+                context_dim=None,
+                heads=args.cma_heads,
+                dim_head=args.cma_head_dim,
+                dropout=args.dropout,
+                ff_activation='gelu',
+                last_norm=False,
+                last_fc=False
+            )
+        self.token_ln = nn.LayerNorm(in_dim)
         
     def forward(self, images, sentences, txt_len):
         with torch.cuda.amp.autocast(enabled=self.amp):
@@ -158,5 +174,39 @@ class CrossModalAttentionRecon(nn.Module):
 
             if self.txt_l2:
                 txt_emb = l2norm(txt_emb)
-            
+        
+        # cm_feat: (B, B, D) = (32, 32, 512)
+        # img_slot: (B, K, D) = (32, 36, 512)
+        # txt_emb: (B, 1, D) = (32, 1, 512)
+        # img_feat_recon: (B, N, D) = (32, 576, 512)
+        # img_feat: (B, N, D) = (32, 576, 512)
         return cm_feat, img_slot, txt_emb, img_feat_recon, img_feat, txt_bert
+
+    def masked_token_prediction(self, img_slot, txt_emb, cm_feat, n_mask=4, std=1):
+        # reshape cm_feat
+        cm_feat = cm_feat[0][:, None, :] # (B, B, D) -> (B, D) -> (B, 1, D) # TODO: cm_feat[0] or cm_feat[:, 0]
+
+        # sample mask idx
+        mask_idx = torch.randperm(img_slot.shape[1])[:n_mask] # (n,)
+
+        # concat 
+        mix_tokens = torch.cat([img_slot, txt_emb, cm_feat], axis=1) # (B, K+2, D)
+        mix_tokens = self.token_ln(mix_tokens)
+        orig_img_slot = mix_tokens[:, mask_idx, :] # (B, n, D)
+        
+        # mask tokens
+        mask_tokens = torch.zeros_like(mix_tokens[..., 0:1]) # (B, K+2, 1)
+        mask_tokens[:, mask_idx, :] = -1. # masked slot (from img_slot)
+        mask_tokens[:, -2, :] = 1. # txt slot (txt_emb)
+        mask_tokens[:, -1, :] = 2. # global slot (cm_feat)
+        if std > 1e-4:
+            std_tensor = torch.zeros(img_slot.shape[0], n_mask, img_slot.shape[2])
+            std_tensor[...] = std
+            contamination = torch.normal(mean=0, std=std_tensor).to(img_slot.device)
+            contamination.requires_grad_(False) # TODO: is it right?
+            mix_tokens[:, mask_idx, :] = mix_tokens[:, mask_idx, :] + contamination
+        mix_tokens = torch.cat([mix_tokens, mask_tokens], axis=-1) # (B, K+1, D+1)
+
+        recon_img_slot = self.tpa_self(mix_tokens)[:, mask_idx, :-1] # (B, n, D)
+
+        return recon_img_slot, orig_img_slot
