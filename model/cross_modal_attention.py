@@ -190,11 +190,11 @@ class CrossModalAttentionRecon(nn.Module):
         txt_emb = txt_emb / torch.norm(txt_emb ,dim=-1, keepdim=True)
 
         # Sample mask idx
-        sample_mode = 1 # {0:"random", 1:"aff_topK", 2:"ca_weights"}
+        sample_mode = 0 # {0:"random", 1:"aff_topK", 2:"ca_weights"}
         # a. random 
         if sample_mode == 0:
             mask_idx = torch.randperm(img_slot.shape[1])[:n_mask] # (n,)
-            mask_idx = mask_idx[None, ...].repeat(img_slot.shape[0], img_slot.shape[1]) # (B, n)
+            mask_idx = mask_idx[None, ...].repeat(img_slot.shape[0], 1) # (B, n)
         # b. affinity topK
         elif sample_mode == 1:
             mask_idx = torch.topk(torch.sum(img_slot * txt_emb, dim=-1), k=n_mask, dim=-1).indices # (B, n)
@@ -204,11 +204,12 @@ class CrossModalAttentionRecon(nn.Module):
         
         # Make mix_tokens by concat 
         mix_tokens = torch.cat([img_slot, txt_emb, cm_feat], axis=1) # (B, K+2, D)
-        orig_img_slot = mix_tokens[torch.arange(img_slot.shape[0]).unsqueeze(1), mask_idx] # (B, n, D)
+        batch_idx = torch.arange(img_slot.shape[0]).unsqueeze(1)
+        orig_img_slot = mix_tokens[batch_idx, mask_idx] # (B, n, D)
         
         # Mask tokens
         mask_tokens = torch.zeros_like(mix_tokens[..., 0:1]) # (B, K+2, 1)
-        mask_tokens[:, mask_idx, :] = -1. # masked slot (from img_slot)
+        mask_tokens[batch_idx, mask_idx, :] = -1. # masked slot (from img_slot)
         mask_tokens[:, -2, :] = 1. # txt slot (txt_emb)
         mask_tokens[:, -1, :] = 2. # global slot (cm_feat)
         if std > 1e-4:
@@ -216,11 +217,11 @@ class CrossModalAttentionRecon(nn.Module):
             std_tensor[...] = std
             contamination = torch.normal(mean=0, std=std_tensor).to(img_slot.device)
             contamination.requires_grad_(False) # TODO: is it right?
-            mix_tokens[:, mask_idx, :] = mix_tokens[:, mask_idx, :] + contamination
+            mix_tokens[batch_idx, mask_idx, :] = mix_tokens[batch_idx, mask_idx, :] + contamination
         mix_tokens = torch.cat([mix_tokens, mask_tokens], axis=-1) # (B, K+1, D+1)
 
         # Predict (Recon) slot
-        recon_img_slot = self.tpa_self(mix_tokens)[torch.arange(img_slot.shape[0]).unsqueeze(1), mask_idx, :-1] # (B, n, D)
+        recon_img_slot = self.tpa_self(mix_tokens)[batch_idx, mask_idx, :-1] # (B, n, D)
         recon_img_slot = recon_img_slot / torch.norm(recon_img_slot ,dim=-1, keepdim=True)
 
         return recon_img_slot, orig_img_slot
