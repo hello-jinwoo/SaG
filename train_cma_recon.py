@@ -56,8 +56,8 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
         with torch.cuda.amp.autocast(enabled=args.amp):
             cm_feat, img_emb, txt_emb, img_feat_recon, img_feat, txt_bert = model.forward(img, txt, txt_len) 
             # MTP
-            MTP_init_epoch = 0
-            MTP_static = True
+            MTP_init_epoch = 10
+            MTP_static = False
             if epoch < MTP_init_epoch:
                 contamination_std = 0.
             else:

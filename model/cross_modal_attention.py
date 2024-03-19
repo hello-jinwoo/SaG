@@ -149,8 +149,8 @@ class CrossModalAttentionRecon(nn.Module):
                 dim_head=args.cma_head_dim,
                 dropout=args.dropout,
                 ff_activation='gelu',
-                last_norm=False,
-                last_fc=False
+                last_norm=True,
+                last_fc=args.cma_last_fc
             )
         
     def forward(self, images, sentences, txt_len):
@@ -219,6 +219,8 @@ class CrossModalAttentionRecon(nn.Module):
             mix_tokens[:, mask_idx, :] = mix_tokens[:, mask_idx, :] + contamination
         mix_tokens = torch.cat([mix_tokens, mask_tokens], axis=-1) # (B, K+1, D+1)
 
-        recon_img_slot = self.tpa_self(mix_tokens)[:, mask_idx, :-1] # (B, n, D)
+        # Predict (Recon) slot
+        recon_img_slot = self.tpa_self(mix_tokens)[torch.arange(img_slot.shape[0]).unsqueeze(1), mask_idx, :-1] # (B, n, D)
+        recon_img_slot = recon_img_slot / torch.norm(recon_img_slot ,dim=-1, keepdim=True)
 
         return recon_img_slot, orig_img_slot
