@@ -150,4 +150,6 @@ check_num_sent.py
 base_ckpts/
 
 # scripts
-*.sh
+train_eval_gref.sh
+train_eval_unc.sh
+train_eval_unc+.sh
