@@ -152,7 +152,6 @@ class CrossModalAttentionRecon(nn.Module):
                 last_norm=False,
                 last_fc=False
             )
-        self.token_ln = nn.LayerNorm(in_dim)
         
     def forward(self, images, sentences, txt_len):
         with torch.cuda.amp.autocast(enabled=self.amp):
@@ -183,18 +182,30 @@ class CrossModalAttentionRecon(nn.Module):
         return cm_feat, img_slot, txt_emb, img_feat_recon, img_feat, txt_bert
 
     def masked_token_prediction(self, img_slot, txt_emb, cm_feat, n_mask=4, std=1):
-        # reshape cm_feat
+        # Reshape cm_feat
         cm_feat = cm_feat[0][:, None, :] # (B, B, D) -> (B, D) -> (B, 1, D) # TODO: cm_feat[0] or cm_feat[:, 0]
 
-        # sample mask idx
-        mask_idx = torch.randperm(img_slot.shape[1])[:n_mask] # (n,)
+        # Normalize img_slot and txt_emb (norm == 1, following cm_feat)
+        img_slot = img_slot / torch.norm(img_slot ,dim=-1, keepdim=True)
+        txt_emb = txt_emb / torch.norm(img_slot ,dim=-1, keepdim=True)
 
-        # concat 
+        # Sample mask idx
+        sample_mode = "aff_topK" # ["random", "aff_topK", "ca_weights"]
+        # a. random 
+        if sample_mode.lower() == "random":
+            mask_idx = torch.randperm(img_slot.shape[1])[:n_mask] 
+        # b. affinity topK
+        elif sample_mode.lower() == "aff_topk":
+            mask_idx = torch.topk(torch.sum(img_slot * txt_emb, dim=-1), k=n_mask, dim=-1) # (B, K)
+        # c. TODO: from cross-attention weights 
+        elif sample_mode.lower() == "ca_weights":
+            pass
+        
+        # Make mix_tokens by concat 
         mix_tokens = torch.cat([img_slot, txt_emb, cm_feat], axis=1) # (B, K+2, D)
-        mix_tokens = self.token_ln(mix_tokens)
         orig_img_slot = mix_tokens[:, mask_idx, :] # (B, n, D)
         
-        # mask tokens
+        # Mask tokens
         mask_tokens = torch.zeros_like(mix_tokens[..., 0:1]) # (B, K+2, 1)
         mask_tokens[:, mask_idx, :] = -1. # masked slot (from img_slot)
         mask_tokens[:, -2, :] = 1. # txt slot (txt_emb)
