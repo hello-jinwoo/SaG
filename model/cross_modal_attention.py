@@ -187,23 +187,24 @@ class CrossModalAttentionRecon(nn.Module):
 
         # Normalize img_slot and txt_emb (norm == 1, following cm_feat)
         img_slot = img_slot / torch.norm(img_slot ,dim=-1, keepdim=True)
-        txt_emb = txt_emb / torch.norm(img_slot ,dim=-1, keepdim=True)
+        txt_emb = txt_emb / torch.norm(txt_emb ,dim=-1, keepdim=True)
 
         # Sample mask idx
-        sample_mode = "aff_topK" # ["random", "aff_topK", "ca_weights"]
+        sample_mode = 1 # {0:"random", 1:"aff_topK", 2:"ca_weights"}
         # a. random 
-        if sample_mode.lower() == "random":
-            mask_idx = torch.randperm(img_slot.shape[1])[:n_mask] 
+        if sample_mode == 0:
+            mask_idx = torch.randperm(img_slot.shape[1])[:n_mask] # (n,)
+            mask_idx = mask_idx[None, ...].repeat(img_slot.shape[0], img_slot.shape[1]) # (B, n)
         # b. affinity topK
-        elif sample_mode.lower() == "aff_topk":
-            mask_idx = torch.topk(torch.sum(img_slot * txt_emb, dim=-1), k=n_mask, dim=-1) # (B, K)
+        elif sample_mode == 1:
+            mask_idx = torch.topk(torch.sum(img_slot * txt_emb, dim=-1), k=n_mask, dim=-1).indices # (B, n)
         # c. TODO: from cross-attention weights 
-        elif sample_mode.lower() == "ca_weights":
+        elif sample_mode == 2:
             pass
         
         # Make mix_tokens by concat 
         mix_tokens = torch.cat([img_slot, txt_emb, cm_feat], axis=1) # (B, K+2, D)
-        orig_img_slot = mix_tokens[:, mask_idx, :] # (B, n, D)
+        orig_img_slot = mix_tokens[torch.arange(img_slot.shape[0]).unsqueeze(1), mask_idx] # (B, n, D)
         
         # Mask tokens
         mask_tokens = torch.zeros_like(mix_tokens[..., 0:1]) # (B, K+2, 1)
