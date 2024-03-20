@@ -181,7 +181,7 @@ class CrossModalAttentionRecon(nn.Module):
         # img_feat: (B, N, D) = (32, 576, 512)
         return cm_feat, img_slot, txt_emb, img_feat_recon, img_feat, txt_bert
 
-    def masked_token_prediction(self, img_slot, txt_emb, cm_feat, n_mask=4, std=1):
+    def masked_token_prediction(self, img_slot, txt_emb, cm_feat, n_mask=4, mask_type="zero", std=1):
         # Reshape cm_feat
         cm_feat = cm_feat[0][:, None, :] # (B, B, D) -> (B, D) -> (B, 1, D) # TODO: cm_feat[0] or cm_feat[:, 0]
 
@@ -190,7 +190,7 @@ class CrossModalAttentionRecon(nn.Module):
         txt_emb = txt_emb / torch.norm(txt_emb ,dim=-1, keepdim=True)
 
         # Sample mask idx
-        sample_mode = 0 # {0:"random", 1:"aff_topK", 2:"ca_weights"}
+        sample_mode = 1 # {0:"random", 1:"aff_topK", 2:"ca_weights"}
         # a. random 
         if sample_mode == 0:
             mask_idx = torch.randperm(img_slot.shape[1])[:n_mask] # (n,)
@@ -212,7 +212,9 @@ class CrossModalAttentionRecon(nn.Module):
         mask_tokens[batch_idx, mask_idx, :] = -1. # masked slot (from img_slot)
         mask_tokens[:, -2, :] = 1. # txt slot (txt_emb)
         mask_tokens[:, -1, :] = 2. # global slot (cm_feat)
-        if std > 1e-4:
+        if mask_type == "zero":
+            mix_tokens[batch_idx, mask_idx, :] = 0.
+        elif mask_type == "noise" and std > 1e-4:
             std_tensor = torch.zeros(img_slot.shape[0], n_mask, img_slot.shape[2])
             std_tensor[...] = std
             contamination = torch.normal(mean=0, std=std_tensor).to(img_slot.device)
