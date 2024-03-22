@@ -123,12 +123,13 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
         NaN_flag = False
         for name, param in model.named_parameters():
             if param.grad is not None and torch.isnan(param.grad).any():
+                if NaN_flag = False:
+                    print("NaN in gradients!")
                 NaN_flag = True
-                print("NaN in gradients!")
                 print(">>", name)
         if NaN_flag:
             NaN_count += 1
-            print(itr)
+            print("itr:", itr)
             print("cm_feat NaN?:", torch.isnan(cm_feat).any())
             print("torch.norm(cm_feat, dim=-1)", torch.mean(torch.norm(cm_feat, dim=-1)))
             print("img_feat NaN?:", torch.isnan(img_feat).any())
@@ -136,9 +137,9 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
             print("txt_emb NaN?:", torch.isnan(txt_emb).any())
             print("torch.norm(txt_emb, dim=-1)", torch.mean(torch.norm(txt_emb, dim=-1)))
             print("orig_img_slot NaN?:", torch.isnan(orig_img_slot).any())
-            print("orig_img_slot[0]", orig_img_slot[0])
+            print("torch.mean(torch.norm(orig_img_slot, dim=-1))", torch.mean(torch.norm(orig_img_slot, dim=-1)))
             print("recon_img_slot NaN?:", torch.isnan(recon_img_slot).any())
-            print("recon_img_slot[0]", recon_img_slot[0])
+            print("torch.mean(torch.norm(recon_img_slot, dim=-1))", torch.mean(torch.norm(recon_img_slot, dim=-1)))
             optimizer.zero_grad()
             continue
 
@@ -160,6 +161,7 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
             n = int(math.ceil(math.log(len(data_loader) + 1, 10)))
             print('[%d][%*d/%d] %s' %(epoch, n, itr, len(data_loader), log_msg))
 
+    print("Total NaN iters in this epoch:", NaN_count)
             
         
 
