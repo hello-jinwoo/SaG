@@ -123,7 +123,7 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
         NaN_flag = False
         for name, param in model.named_parameters():
             if param.grad is not None and torch.isnan(param.grad).any():
-                if NaN_flag = False:
+                if NaN_flag == False:
                     print("NaN in gradients!")
                 NaN_flag = True
                 print(">>", name)
