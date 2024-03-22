@@ -264,14 +264,20 @@ class Attention(nn.Module):
             mask = repeat(mask, 'b j -> (b h) () j', h = h)
             sim.masked_fill_(mask, max_neg_value)
         # attention, what we cannot get enough of
-        attn = self.norm_attn(sim, is_gumbel = is_gumbel, gumbel_tau=gumbel_tau)
-        out_attn = attn
+        attn_ = self.norm_attn(sim, is_gumbel = is_gumbel, gumbel_tau=gumbel_tau)
+        out_attn = attn_
         if self.attn_type == 'slot':
             if exists(mask):
-                attn = attn.masked_fill(mask, 0)
-            attn = attn / (attn.sum(dim=-1, keepdim=True) + 1e-7)
+                attn_ = attn_.masked_fill(mask, 0)
+            attn = attn_ / (attn_.sum(dim=-1, keepdim=True) + 1e-7)
+        else:
+            attn = attn_
         
         if torch.isnan(attn).any():
+            # print("attn NaN!")
+            # print("torch.isnan(attn_).any():", torch.isnan(attn_).any())
+            # print("torch.isnan(sim).any():", sim)
+            # print("torch.isnan(x).any():", x)
             import pdb; pdb.set_trace()
             
         attn = self.attn_matrix_dropout(attn)

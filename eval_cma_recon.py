@@ -44,7 +44,7 @@ def encode_data(model, data_loader, crop_size, img_num_embeds, embed_dim, args, 
     
     slot_a_map = []
     cm_a_map = []
-        
+    
     for i, data in tqdm(enumerate(data_loader)):
         img_len = None
         img, txt, txt_len, ids = data

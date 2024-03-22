@@ -42,6 +42,7 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
     losses_dict['recon'] = AverageMeter()
     losses_dict['mtp'] = AverageMeter()
     
+    NaN_count = 0
     for itr, data in enumerate(data_loader):
         total_iter += 1
 
@@ -58,7 +59,7 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
             # MTP
             MTP_init_epoch = 0
             MTP_static = False
-            MTP_type = "noise" # ["zero", "noise"]
+            MTP_type = "zero" # ["zero", "noise"]
             if epoch < MTP_init_epoch:
                 contamination_std = 0.
             else:
@@ -66,7 +67,7 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
                     contamination_std = 1.
                 else: # scheduled std
                     contamination_std = min(0.04 * epoch-(MTP_init_epoch), 1)
-            recon_img_slot, orig_img_slot = model.masked_token_prediction(img_emb, txt_emb, cm_feat, 4, MTP_type, contamination_std)
+            recon_img_slot, orig_img_slot = model.masked_token_prediction(img_emb, txt_emb.detach().clone(), cm_feat.detach().clone(), 4, MTP_type, contamination_std)
             if itr == 0:
                 print("@@ norm of img_slot:", torch.mean(torch.norm(img_emb, dim=-1)))
                 print("@@ norm of txt_emb:", torch.mean(torch.norm(txt_emb, dim=-1)))
@@ -97,7 +98,8 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
             # MTP
             # TODO
             if epoch >= MTP_init_epoch:
-                mtp_loss = recon_criterion(recon_img_slot, orig_img_slot.detach())
+                mtp_loss = recon_criterion(recon_img_slot, orig_img_slot)
+                # mtp_loss = recon_criterion(recon_img_slot, orig_img_slot.detach())
                 loss_dict['mtp'] = mtp_loss
                 mtp_weight = min(0.02 * (epoch-MTP_init_epoch), 0.5)
                 loss = loss + mtp_weight * mtp_loss 
@@ -116,6 +118,30 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
         # Backprop
         optimizer.zero_grad()
         scaler.scale(loss).backward()
+        
+        # print("=================================")
+        NaN_flag = False
+        for name, param in model.named_parameters():
+            if param.grad is not None and torch.isnan(param.grad).any():
+                NaN_flag = True
+                print("NaN in gradients!")
+                print(">>", name)
+        if NaN_flag:
+            NaN_count += 1
+            print(itr)
+            print("cm_feat NaN?:", torch.isnan(cm_feat).any())
+            print("torch.norm(cm_feat, dim=-1)", torch.mean(torch.norm(cm_feat, dim=-1)))
+            print("img_feat NaN?:", torch.isnan(img_feat).any())
+            print("torch.norm(img_feat, dim=-1)", torch.mean(torch.norm(img_feat, dim=-1)))
+            print("txt_emb NaN?:", torch.isnan(txt_emb).any())
+            print("torch.norm(txt_emb, dim=-1)", torch.mean(torch.norm(txt_emb, dim=-1)))
+            print("orig_img_slot NaN?:", torch.isnan(orig_img_slot).any())
+            print("orig_img_slot[0]", orig_img_slot[0])
+            print("recon_img_slot NaN?:", torch.isnan(recon_img_slot).any())
+            print("recon_img_slot[0]", recon_img_slot[0])
+            optimizer.zero_grad()
+            continue
+
         if args.grad_clip > 0:
             scaler.unscale_(optimizer)
             nn.utils.clip_grad.clip_grad_norm_(model.parameters(), args.grad_clip)
