@@ -274,10 +274,6 @@ class Attention(nn.Module):
             attn = attn_
         
         if torch.isnan(attn).any():
-            # print("attn NaN!")
-            # print("torch.isnan(attn_).any():", torch.isnan(attn_).any())
-            # print("torch.isnan(sim).any():", sim)
-            # print("torch.isnan(x).any():", x)
             import pdb; pdb.set_trace()
             
         attn = self.attn_matrix_dropout(attn)

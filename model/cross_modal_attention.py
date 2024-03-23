@@ -138,12 +138,13 @@ class CrossModalAttentionRecon(nn.Module):
 
         self.txt_l2 = args.info_txt_l2
 
-        self.tpa_self = None # token predicting attention
-        self.mask_token_type = "concat" # TODO
-        if self.mask_token_type == "concat":
+        self.mtp_mask_token_type = args.mtp_mask_token_type # ["concat", "add"]
+        if self.mtp_mask_token_type == "concat":
             tpa_in_dim = in_dim + 1 # +1 for mask token
         else: 
             tpa_in_dim = in_dim
+
+        self.tpa_self = None # token predicting attention
         # if args.tpa_self_attn: # TODO
         if True:
             self.tpa_self = TransformerLayer(
@@ -157,30 +158,18 @@ class CrossModalAttentionRecon(nn.Module):
                 last_norm=True,
                 last_fc=args.cma_last_fc
             )
+
+            self.mtp_mask_idx_sample_mode = args.mtp_mask_idx_sample_mode # {"random", "txt_aff_topK", "ca_weights"}
         
     def forward(self, images, sentences, txt_len):
         with torch.cuda.amp.autocast(enabled=self.amp):
-            # print("A")
-            # if torch.isnan(images).any():
-                # print("@@ cross_modal_attention.py, images NaN!")
-            # if torch.isnan(sentences).any():
-                # print("@@ cross_modal_attention.py, sentences NaN!")
-                # asd
             img_slot, img_feat, txt_emb, txt_attn, img_residual, txt_residual, txt_bert =\
                 self.encoders(images, sentences, txt_len)
             img_feat_recon = self.decoder(img_slot)
 
-            # print("X")
             if self.cma_self is not None:
-                # if torch.isnan(img_slot).any():
-                    # print("## cross_modal_attention.py, img_slot NaN!")
-                    # asd
                 img_slot = self.cma_self(img_slot)
 
-            # print("Y")
-            # if torch.isnan(txt_emb).any():
-                # print("$$ cross_modal_attention.py, txt_emb NaN!")
-                # asd
             cm_feat = self.cma(
                 repeat(txt_emb, 'b n d -> repeat b (n d)', repeat=img_slot.shape[0]), 
                 context=img_slot
@@ -209,16 +198,15 @@ class CrossModalAttentionRecon(nn.Module):
         txt_emb = txt_emb / (torch.norm(txt_emb ,dim=-1, keepdim=True) + 1e-6)
 
         # Sample mask idx
-        sample_mode = 1 # {0:"random", 1:"aff_topK", 2:"ca_weights"}
         # a. random 
-        if sample_mode == 0:
+        if self.mtp_mask_idx_sample_mode.lower() == "random":
             mask_idx = torch.randperm(img_slot.shape[1])[:n_mask] # (n,)
             mask_idx = mask_idx[None, ...].repeat(img_slot.shape[0], 1) # (B, n)
         # b. affinity topK
-        elif sample_mode == 1:
+        elif self.mtp_mask_idx_sample_mode.lower() == "txt_aff_topk":
             mask_idx = torch.topk(torch.sum(img_slot * txt_emb, dim=-1), k=n_mask, dim=-1).indices # (B, n)
         # c. TODO: from cross-attention weights 
-        elif sample_mode == 2:
+        elif self.mtp_mask_idx_sample_mode.lower() == "ca_weights":
             pass
         
         # Make mix_tokens by concat 
@@ -237,7 +225,7 @@ class CrossModalAttentionRecon(nn.Module):
 
         # Mask tokens
         mask_tokens = torch.zeros_like(mix_tokens[..., 0:1]) # (B, K+2, 1)
-        mask_tokens.requires_grad_(False) # TODO
+        # mask_tokens.requires_grad_(False) # TODO
         mask_tokens[batch_idx, mask_idx, :] = -1. # masked slot (from img_slot)
         mask_tokens[:, -2, :] = 1. # txt slot (txt_emb)
         mask_tokens[:, -1, :] = 2. # global slot (cm_feat)
@@ -247,28 +235,19 @@ class CrossModalAttentionRecon(nn.Module):
             std_tensor = torch.zeros(img_slot.shape[0], n_mask, img_slot.shape[2])
             std_tensor[...] = std
             contamination = torch.normal(mean=0, std=std_tensor).to(dtype=img_slot.dtype, device=img_slot.device)
-            contamination.requires_grad_(False) # TODO: is it right?
+            # contamination.requires_grad_(False) # TODO: 
             mix_tokens[batch_idx, mask_idx, :] = mix_tokens[batch_idx, mask_idx, :] + contamination
-        if self.mask_token_type == "concat":
+        if self.mtp_mask_token_type == "concat":
             mix_tokens = torch.cat([mix_tokens, mask_tokens], axis=-1) # (B, K+2, D+1)
-        elif self.mask_token_type == "add":
+        elif self.mtp_mask_token_type == "add":
             mix_tokens = mix_tokens + mask_tokens # (B, K+2, D)
 
-        # Predict (Recon) slot
-        # print("Z")
-        # if torch.isnan(mix_tokens).any():
-            # print("cross_modal_attention.py L234, mix_tokens NaN!")
-            # asd
         if orig_img_slot_mode == 0:
             recon_img_slot = self.tpa_self(mix_tokens)[batch_idx, mask_idx, :] # (B, n, D)
         elif orig_img_slot_mode == 1:
             recon_img_slot = self.tpa_self(mix_tokens)[:, :-2, :] # (B, K, D)
-        if self.mask_token_type == "concat":
+        if self.mtp_mask_token_type == "concat":
             recon_img_slot = recon_img_slot[..., :-1]
         recon_img_slot = recon_img_slot / (torch.norm(recon_img_slot ,dim=-1, keepdim=True) + 1e-6)
-        # print("W")
-        # if torch.isnan(recon_img_slot).any():
-            # print("cross_modal_attention.py L240, recon_img_slot NaN!")
-            # asd
 
         return recon_img_slot, orig_img_slot

@@ -152,6 +152,13 @@ parser.add_argument('--size_penalty', default=5, type=float)
 
 parser.add_argument("--save_head_map", action='store_true')
 
+# Options for MTP (Masked Token Prediction)
+parser.add_argument('--mtp_mask_token_type', default="concat", choices=('concat','add'))
+parser.add_argument('--mtp_mask_idx_sample_mode', default="random", choices=('random','txt_aff_topk', 'ca_weights'))
+parser.add_argument('--mtp_init_epoch', default=0, type=int)
+parser.add_argument("--mtp_static_noise", action='store_true')
+parser.add_argument('--mtp_mask_type', default="zero", choices=('zero', 'noise'))
+
 def verify_input_args(args):
     # Process input arguments
     assert not(args.agg_gumbel_attn and args.agg_gumbel_last)

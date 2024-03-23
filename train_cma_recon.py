@@ -57,17 +57,17 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
         with torch.cuda.amp.autocast(enabled=args.amp):
             cm_feat, img_emb, txt_emb, img_feat_recon, img_feat, txt_bert = model.forward(img, txt, txt_len) 
             # MTP
-            MTP_init_epoch = 0
-            MTP_static = False
-            MTP_type = "zero" # ["zero", "noise"]
-            if epoch < MTP_init_epoch:
+            mtp_init_epoch = args.mtp_init_epoch
+            mtp_static_noise = args.mtp_static_noise # True/False
+            mtp_mask_type = args.mtp_mask_type # ["zero", "noise"]
+            if epoch < mtp_init_epoch:
                 contamination_std = 0.
             else:
-                if MTP_static:
+                if mtp_static_noise:
                     contamination_std = 1.
                 else: # scheduled std
-                    contamination_std = min(0.04 * epoch-(MTP_init_epoch), 1)
-            recon_img_slot, orig_img_slot = model.masked_token_prediction(img_emb, txt_emb.detach().clone(), cm_feat.detach().clone(), 4, MTP_type, contamination_std)
+                    contamination_std = min(0.04 * epoch-(mtp_init_epoch), 1)
+            recon_img_slot, orig_img_slot = model.masked_token_prediction(img_emb, txt_emb.detach().clone(), cm_feat.detach().clone(), 4, mtp_mask_type, contamination_std)
             if itr == 0:
                 print("@@ norm of img_slot:", torch.mean(torch.norm(img_emb, dim=-1)))
                 print("@@ norm of txt_emb:", torch.mean(torch.norm(txt_emb, dim=-1)))
@@ -97,11 +97,11 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
 
             # MTP
             # TODO
-            if epoch >= MTP_init_epoch:
+            if epoch >= mtp_init_epoch:
                 mtp_loss = recon_criterion(recon_img_slot, orig_img_slot)
                 # mtp_loss = recon_criterion(recon_img_slot, orig_img_slot.detach())
                 loss_dict['mtp'] = mtp_loss
-                mtp_weight = min(0.02 * (epoch-MTP_init_epoch), 0.5)
+                mtp_weight = min(0.02 * (epoch-mtp_init_epoch), 0.5)
                 loss = loss + mtp_weight * mtp_loss 
 
             if total_iter < args.lr_warmup_iter:
@@ -119,27 +119,16 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
         optimizer.zero_grad()
         scaler.scale(loss).backward()
         
-        # print("=================================")
         NaN_flag = False
         for name, param in model.named_parameters():
             if param.grad is not None and torch.isnan(param.grad).any():
-                if NaN_flag == False:
-                    print("NaN in gradients!")
+                # if NaN_flag == False:
+                #     print("NaN in gradients!")
                 NaN_flag = True
-                print(">>", name)
+                # print(">>", name)
         if NaN_flag:
             NaN_count += 1
-            print("itr:", itr)
-            print("cm_feat NaN?:", torch.isnan(cm_feat).any())
-            print("torch.norm(cm_feat, dim=-1)", torch.mean(torch.norm(cm_feat, dim=-1)))
-            print("img_feat NaN?:", torch.isnan(img_feat).any())
-            print("torch.norm(img_feat, dim=-1)", torch.mean(torch.norm(img_feat, dim=-1)))
-            print("txt_emb NaN?:", torch.isnan(txt_emb).any())
-            print("torch.norm(txt_emb, dim=-1)", torch.mean(torch.norm(txt_emb, dim=-1)))
-            print("orig_img_slot NaN?:", torch.isnan(orig_img_slot).any())
-            print("torch.mean(torch.norm(orig_img_slot, dim=-1))", torch.mean(torch.norm(orig_img_slot, dim=-1)))
-            print("recon_img_slot NaN?:", torch.isnan(recon_img_slot).any())
-            print("torch.mean(torch.norm(recon_img_slot, dim=-1))", torch.mean(torch.norm(recon_img_slot, dim=-1)))
+            # print("itr:", itr)
             optimizer.zero_grad()
             continue
 

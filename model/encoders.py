@@ -150,18 +150,7 @@ class SetPredictionModule(nn.Module):
         )
         
     def forward(self, local_feat, global_feat=None, pad_mask=None, txt_emb=None):
-
-        # print("BB1")
-        # if torch.isnan(local_feat).any():
-        #     print(")) encoders.py local_feat NaN!")
-
         set_prediction, attn = self.agg(local_feat, mask=pad_mask, txt_emb=txt_emb) 
-
-        # print("BB2")
-        # if torch.isnan(attn).any():
-        #     print(")) encoders.py attn NaN!")
-        # if torch.isnan(set_prediction).any():
-        #     print(")) encoders.py set_prediction NaN!")
 
         if global_feat is not None and self.use_residual:
             global_feat = global_feat.unsqueeze(1).repeat(1, self.num_embeds, 1)
@@ -265,11 +254,6 @@ class EncoderImage(nn.Module):
 
     def forward(self, images, txt_emb=None):
         out_nxn = self.img_backbone(images)[:, 1:, :]
-        # print("B")
-        # if torch.isnan(out_nxn).any():
-        #     print("~~ encoder.py out_nxn NaN!", out_nxn)
-        #     asd
-
         out_nxn = rearrange(out_nxn, 'b (h w) d -> b h w d', h=self.num_patches, w=self.num_patches)
         out, attn, residual = self.set_pred_module(
             local_feat=self.spm_1x1(out_nxn), 
@@ -277,15 +261,6 @@ class EncoderImage(nn.Module):
             pad_mask=None,
             txt_emb=txt_emb
         )
-
-        # print("C")
-        # if torch.isnan(out).any():
-        #     print("?? encoder.py out NaN!")
-        #     asd
-        # if torch.isnan(attn).any():
-        #     print("?? encoder.py attn NaN!")
-        #     asd
-
         return out, rearrange(out_nxn, 'b ... d -> b (...) d'), attn, residual
 
     
