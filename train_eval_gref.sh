@@ -1,5 +1,10 @@
 python train_cma_recon.py \
---remark mtp_gref_debug \
+--remark mtp_gref_poc7 \
+--mtp_mask_token_type concat \
+--mtp_mask_idx_sample_mode txt_aff_topk \
+--mtp_init_epoch 0 \
+--mtp_loss_weight 0.5 \
+--mtp_mask_type noise \
 --data_name coco \
 --margin 0.1 \
 --img_num_embeds 36 \
@@ -59,12 +64,7 @@ python train_cma_recon.py \
 --seed 1 \
 --num_layers 12 \
 --agg_var_scaling 1 \
---decoder_normalizer softmax \
---mtp_mask_token_type concat \
---mtp_mask_idx_sample_mode random \
---mtp_init_epoch 0 \
---mtp_static_noise \
---mtp_mask_type zero
+--decoder_normalizer softmax
 
 
 python eval_cma_recon.py \

@@ -101,7 +101,7 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
                 mtp_loss = recon_criterion(recon_img_slot, orig_img_slot)
                 # mtp_loss = recon_criterion(recon_img_slot, orig_img_slot.detach())
                 loss_dict['mtp'] = mtp_loss
-                mtp_weight = min(0.02 * (epoch-mtp_init_epoch), 0.5)
+                mtp_weight = args.mtp_loss_weight
                 loss = loss + mtp_weight * mtp_loss 
 
             if total_iter < args.lr_warmup_iter:

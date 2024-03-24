@@ -156,6 +156,7 @@ parser.add_argument("--save_head_map", action='store_true')
 parser.add_argument('--mtp_mask_token_type', default="concat", choices=('concat','add'))
 parser.add_argument('--mtp_mask_idx_sample_mode', default="random", choices=('random','txt_aff_topk', 'ca_weights'))
 parser.add_argument('--mtp_init_epoch', default=0, type=int)
+parser.add_argument('--mtp_loss_weight', default=0.5, type=float)
 parser.add_argument("--mtp_static_noise", action='store_true')
 parser.add_argument('--mtp_mask_type', default="zero", choices=('zero', 'noise'))
 
