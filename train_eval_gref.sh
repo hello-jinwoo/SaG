@@ -1,11 +1,12 @@
 python train_cma_recon.py \
---remark mtp_gref_poc18 \
---mtp_mask_token_type add \
+--remark mtp_gref_poc20 \
+--mtp_mask_token_type concat \
 --mtp_mask_idx_sample_mode random \
 --mtp_init_epoch 0 \
 --mtp_loss_weight 0.5 \
 --mtp_mask_type noise \
---mtp_mask_ratio 0.25 \
+--mtp_mask_ratio 0.5 \
+--mtp_pred_target all \
 --data_name coco \
 --margin 0.1 \
 --img_num_embeds 36 \

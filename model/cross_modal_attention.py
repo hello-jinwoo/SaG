@@ -160,6 +160,7 @@ class CrossModalAttentionRecon(nn.Module):
             )
 
             self.mtp_mask_idx_sample_mode = args.mtp_mask_idx_sample_mode # {"random", "txt_aff_topK", "ca_weights"}
+            self.mtp_pred_target = args.mtp_pred_target # {"masked", "all"}
         
     def forward(self, images, sentences, txt_len):
         with torch.cuda.amp.autocast(enabled=self.amp):
@@ -219,11 +220,9 @@ class CrossModalAttentionRecon(nn.Module):
 
         # Set orig_img_slot
         orig_img_slot_mode = 0 # {0: "only masked", 1: "all"}
-        # a. only the masked ones
-        if orig_img_slot_mode == 0:
+        if self.mtp_pred_target == "masked":
             orig_img_slot = mix_tokens[batch_idx, mask_idx, :].detach().clone() # (B, n, D)
-        # b. all
-        elif orig_img_slot_mode == 1:
+        if self.mtp_pred_target == "all":
             orig_img_slot = mix_tokens[:, :-2, :].detach().clone()
 
         # Mask tokens
@@ -240,17 +239,20 @@ class CrossModalAttentionRecon(nn.Module):
             contamination = torch.normal(mean=0, std=std_tensor).to(dtype=img_slot.dtype, device=img_slot.device)
             # contamination.requires_grad_(False) # TODO: 
             mix_tokens[batch_idx, mask_idx, :] = mix_tokens[batch_idx, mask_idx, :] + contamination
+        
         if self.mtp_mask_token_type == "concat":
             mix_tokens = torch.cat([mix_tokens, mask_tokens], axis=-1) # (B, K+2, D+1)
         elif self.mtp_mask_token_type == "add":
             mix_tokens = mix_tokens + mask_tokens # (B, K+2, D)
 
-        if orig_img_slot_mode == 0:
+        if self.mtp_pred_target == "masked":
             recon_img_slot = self.tpa_self(mix_tokens)[batch_idx, mask_idx, :] # (B, n, D)
-        elif orig_img_slot_mode == 1:
+        if self.mtp_pred_target == "all":
             recon_img_slot = self.tpa_self(mix_tokens)[:, :-2, :] # (B, K, D)
+            
         if self.mtp_mask_token_type == "concat":
             recon_img_slot = recon_img_slot[..., :-1]
+
         recon_img_slot = recon_img_slot / (torch.norm(recon_img_slot ,dim=-1, keepdim=True) + 1e-6)
 
         return recon_img_slot, orig_img_slot

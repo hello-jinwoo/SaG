@@ -160,6 +160,7 @@ parser.add_argument('--mtp_loss_weight', default=0.5, type=float)
 parser.add_argument("--mtp_static_noise", action='store_true')
 parser.add_argument('--mtp_mask_type', default="zero", choices=('zero', 'noise'))
 parser.add_argument('--mtp_mask_ratio', default=0.1, type=float)
+parser.add_argument('--mtp_pred_target', default="masked", choices=('masked', 'all'))
 
 def verify_input_args(args):
     # Process input arguments
