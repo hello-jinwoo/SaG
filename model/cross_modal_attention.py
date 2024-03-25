@@ -189,7 +189,10 @@ class CrossModalAttentionRecon(nn.Module):
         # img_feat: (B, N, D) = (32, 576, 512)
         return cm_feat, img_slot, txt_emb, img_feat_recon, img_feat, txt_bert
 
-    def masked_token_prediction(self, img_slot, txt_emb, cm_feat, n_mask=4, mask_type="zero", std=1):
+    def masked_token_prediction(self, img_slot, txt_emb, cm_feat, r_mask=0.1, mask_type="zero", std=1):
+        # calculate n_mask
+        n_mask = int(r_mask * img_slot.shape[1])
+
         # Reshape cm_feat
         cm_feat = cm_feat[0][:, None, :] # (B, B, D) -> (B, D) -> (B, 1, D) # TODO: cm_feat[0] or cm_feat[:, 0]
 
