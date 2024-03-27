@@ -59,15 +59,19 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
             # MTP
             mtp_init_epoch = args.mtp_init_epoch
             mtp_static_noise = args.mtp_static_noise # True/False
+            mtp_noise_max = args.mtp_noise_max
+            mtp_noise_step = args.mtp_noise_step
             mtp_mask_type = args.mtp_mask_type # ["zero", "noise"]
             r_mask = args.mtp_mask_ratio
             if epoch < mtp_init_epoch:
                 contamination_std = 0.
             else:
                 if mtp_static_noise:
-                    contamination_std = 1.
+                    contamination_std = mtp_noise_max
                 else: # scheduled std
-                    contamination_std = min(0.04 * epoch-(mtp_init_epoch), 1)
+                    if mtp_noise_step == -1:
+                        mtp_noise_step = mtp_noise_max / (args.num_epochs - mtp_init_epoch)
+                    contamination_std = min(mtp_noise_step * epoch-(mtp_init_epoch), mtp_noise_max)
             recon_img_slot, orig_img_slot = model.masked_token_prediction(img_emb, txt_emb.detach().clone(), cm_feat.detach().clone(), r_mask, mtp_mask_type, contamination_std)
             if itr == 0:
                 print("@@ norm of img_slot:", torch.mean(torch.norm(img_emb, dim=-1)))
