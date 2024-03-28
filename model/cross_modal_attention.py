@@ -144,9 +144,10 @@ class CrossModalAttentionRecon(nn.Module):
         else: 
             tpa_in_dim = in_dim
 
-        self.tpa_self = None # token predicting attention
-        # if args.tpa_self_attn: # TODO
-        if True:
+        self.tpa = None # token predicting attention
+        self.mtp_tpa_type = args.mtp_tpa_type # {"self", "cross", +TODO}
+        # if args.tpa_attn: # TODO
+        if self.mtp_tpa_type == "self":
             self.tpa_self = TransformerLayer(
                 query_dim=tpa_in_dim, 
                 ff_dim=tpa_in_dim,
@@ -158,9 +159,22 @@ class CrossModalAttentionRecon(nn.Module):
                 last_norm=True,
                 last_fc=args.cma_last_fc
             )
+        elif self.mtp_tpa_type == "cross":
+            self.tpa_cross = TransformerLayer(
+                query_dim=in_dim,
+                ff_dim=in_dim,
+                context_dim=in_dim,
+                heads=args.cma_heads,
+                dim_head=args.cma_head_dim,
+                dropout=args.dropout,
+                ff_activation='gelu',
+                last_norm=True,
+                last_fc=args.cma_last_fc
+            )
 
-            self.mtp_mask_idx_sample_mode = args.mtp_mask_idx_sample_mode # {"random", "txt_aff_topK", "ca_weights"}
-            self.mtp_pred_target = args.mtp_pred_target # {"masked", "all"}
+        self.mtp_mask_idx_sample_mode = args.mtp_mask_idx_sample_mode # {"random", "txt_aff_topK", "ca_weights"}
+        self.mtp_pred_target = args.mtp_pred_target # {"masked", "all"}
+            
         
     def forward(self, images, sentences, txt_len):
         with torch.cuda.amp.autocast(enabled=self.amp):
@@ -191,6 +205,8 @@ class CrossModalAttentionRecon(nn.Module):
         return cm_feat, img_slot, txt_emb, img_feat_recon, img_feat, txt_bert
 
     def masked_token_prediction(self, img_slot, txt_emb, cm_feat, r_mask=0.1, mask_type="zero", std=1):
+        B, K, D = img_slot.shape
+        
         # calculate n_mask
         n_mask = int(r_mask * img_slot.shape[1])
 
@@ -201,54 +217,75 @@ class CrossModalAttentionRecon(nn.Module):
         img_slot = img_slot / (torch.norm(img_slot ,dim=-1, keepdim=True) + 1e-6)
         txt_emb = txt_emb / (torch.norm(txt_emb ,dim=-1, keepdim=True) + 1e-6)
 
-        # Sample mask idx
+        # # Sample mask idx
+        ''' DEPRECATED
+        # # a. random 
+        # if self.mtp_mask_idx_sample_mode.lower() == "random":
+        #     mask_idx = torch.randperm(K)[:n_mask] # (n,)
+        #     mask_idx = mask_idx[None, ...].repeat(B, 1) # (B, n)
+        # # b. affinity topK
+        # elif self.mtp_mask_idx_sample_mode.lower() == "txt_aff_topk":
+        #     mask_idx = torch.topk(torch.sum(img_slot * txt_emb, dim=-1), k=n_mask, dim=-1).indices # (B, n)
+        #     mask_idx_complement = torch.topk(-torch.sum(img_slot * txt_emb, dim=-1), k=K-n_mask, dim=-1).indices # (B, K-n)
+        # # c. TODO: from cross-attention weights 
+        # elif self.mtp_mask_idx_sample_mode.lower() == "ca_weights":
+        #     pass
+        '''
+        # random shuffle
         # a. random 
         if self.mtp_mask_idx_sample_mode.lower() == "random":
-            mask_idx = torch.randperm(img_slot.shape[1])[:n_mask] # (n,)
-            mask_idx = mask_idx[None, ...].repeat(img_slot.shape[0], 1) # (B, n)
-        # b. affinity topK
-        elif self.mtp_mask_idx_sample_mode.lower() == "txt_aff_topk":
-            mask_idx = torch.topk(torch.sum(img_slot * txt_emb, dim=-1), k=n_mask, dim=-1).indices # (B, n)
+            # batch_idx = torch.arange(B)[:, None]
+            img_slot = img_slot[:, torch.randperm(K), :]
+        # b. TODO: affinity topK
+        if self.mtp_mask_idx_sample_mode.lower() == "txt_aff_topk":
+            pass
         # c. TODO: from cross-attention weights 
         elif self.mtp_mask_idx_sample_mode.lower() == "ca_weights":
             pass
-        
-        # Make mix_tokens by concat 
-        mix_tokens = img_slot.clone() # (B, K+2, D)
-        # mix_tokens = torch.cat([img_slot, txt_emb, cm_feat], axis=1) # (B, K+2, D)
-        batch_idx = torch.arange(img_slot.shape[0]).unsqueeze(1)
 
+        # Make mix_tokens by concat 
+        mix_tokens = img_slot # (B, K+2, D)
+        # mix_tokens = torch.cat([img_slot, txt_emb, cm_feat], axis=1) # (B, K+2, D)
+        
         # Set orig_img_slot
         orig_img_slot_mode = 0 # {0: "only masked", 1: "all"}
         if self.mtp_pred_target == "masked":
-            orig_img_slot = mix_tokens[batch_idx, mask_idx, :].detach().clone() # (B, n, D)
+            orig_img_slot = mix_tokens[:, :n_mask, :] # (B, n, D)
         if self.mtp_pred_target == "all":
-            orig_img_slot = mix_tokens[:, :-2, :].detach().clone()
+            orig_img_slot = mix_tokens[:, :-2, :]
 
         # Mask tokens
         mask_tokens = torch.zeros_like(mix_tokens[..., 0:1]) # (B, K+2, 1)
         # mask_tokens.requires_grad_(False) # TODO
-        mask_tokens[batch_idx, mask_idx, :] = -1. # masked slot (from img_slot)
+        mask_tokens[:, :n_mask, :] = -1. # masked slot (from img_slot)
         mask_tokens[:, -2, :] = 1. # txt slot (txt_emb)
         mask_tokens[:, -1, :] = 2. # global slot (cm_feat)
         if mask_type == "zero":
-            mix_tokens[batch_idx, mask_idx, :] = 0.
+            mix_tokens[:, :n_mask, :] = 0.
         elif mask_type == "noise" and std > 1e-4:
             std_tensor = torch.zeros(img_slot.shape[0], n_mask, img_slot.shape[2])
             std_tensor[...] = std
             contamination = torch.normal(mean=0, std=std_tensor).to(dtype=img_slot.dtype, device=img_slot.device)
             # contamination.requires_grad_(False) # TODO: 
-            mix_tokens[batch_idx, mask_idx, :] = mix_tokens[batch_idx, mask_idx, :] + contamination
+            mix_tokens[:, :n_mask, :] = mix_tokens[:, :n_mask, :] + contamination
         
         if self.mtp_mask_token_type == "concat":
             mix_tokens = torch.cat([mix_tokens, mask_tokens], axis=-1) # (B, K+2, D+1)
         elif self.mtp_mask_token_type == "add":
             mix_tokens = mix_tokens + mask_tokens # (B, K+2, D)
 
+        if self.mtp_tpa_type == "self":
+            pred = self.tpa_self(mix_tokens)
+        elif self.mtp_tpa_type == "cross":
+            pred = self.tpa_cross(
+                mix_tokens[:, :n_mask, :], 
+                context=mix_tokens[:, n_mask:, :]
+            )
+
         if self.mtp_pred_target == "masked":
-            recon_img_slot = self.tpa_self(mix_tokens)[batch_idx, mask_idx, :] # (B, n, D)
+            recon_img_slot = pred[:, :n_mask, :] # (B, n, D)
         if self.mtp_pred_target == "all":
-            recon_img_slot = self.tpa_self(mix_tokens)[:, :-2, :] # (B, K, D)
+            recon_img_slot = pred[:, :-2, :] # (B, K, D)
             
         if self.mtp_mask_token_type == "concat":
             recon_img_slot = recon_img_slot[..., :-1]

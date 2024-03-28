@@ -272,7 +272,7 @@ class Attention(nn.Module):
             attn = attn_ / (attn_.sum(dim=-1, keepdim=True) + 1e-7)
         else:
             attn = attn_
-        
+
         if torch.isnan(attn).any():
             import pdb; pdb.set_trace()
             
