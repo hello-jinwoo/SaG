@@ -6,6 +6,7 @@ from einops import rearrange, repeat
 from model.attention import TransformerLayer
 from model.encoders import ImageTextEncoders, l2norm, ImageTextEncodersRecon
 from model.decoder import MlpDecoder, TransformerDecoder
+from model.pos_encoding import positionalencoding2d
 
 class MLP(nn.Module):
     def __init__(self, in_dim, hidden_dim, out_dim) -> None:
@@ -174,11 +175,11 @@ class CrossModalAttentionRecon(nn.Module):
 
         self.mtp_mask_idx_sample_mode = args.mtp_mask_idx_sample_mode # {"random", "txt_aff_topK", "ca_weights"}
         self.mtp_pred_target = args.mtp_pred_target # {"masked", "all"}
-            
+        self.mtp_aux_pos_enc = args.mtp_aux_pos_enc # {"sine", "learned"}
         
     def forward(self, images, sentences, txt_len):
         with torch.cuda.amp.autocast(enabled=self.amp):
-            img_slot, img_feat, txt_emb, txt_attn, img_residual, txt_residual, txt_bert =\
+            img_slot, img_feat, txt_emb, txt_attn, img_residual, txt_residual, txt_bert, slot_img_attn =\
                 self.encoders(images, sentences, txt_len)
             img_feat_recon = self.decoder(img_slot)
 
@@ -202,9 +203,9 @@ class CrossModalAttentionRecon(nn.Module):
         # txt_emb: (B, 1, D) = (32, 1, 512)
         # img_feat_recon: (B, N, D) = (32, 576, 512)
         # img_feat: (B, N, D) = (32, 576, 512)
-        return cm_feat, img_slot, txt_emb, img_feat_recon, img_feat, txt_bert
+        return cm_feat, img_slot, txt_emb, img_feat_recon, img_feat, txt_bert, slot_img_attn
 
-    def masked_token_prediction(self, img_slot, txt_emb, cm_feat, r_mask=0.1, mask_type="zero", std=1):
+    def masked_token_prediction(self, img_slot, txt_emb, cm_feat, slot_img_attn=None, r_mask=0.1, mask_type="zero", std=1):
         B, K, D = img_slot.shape
         
         # calculate n_mask
@@ -235,7 +236,10 @@ class CrossModalAttentionRecon(nn.Module):
         # a. random 
         if self.mtp_mask_idx_sample_mode.lower() == "random":
             # batch_idx = torch.arange(B)[:, None]
-            img_slot = img_slot[:, torch.randperm(K), :]
+            rand_idx = torch.randperm(K)
+            img_slot = img_slot[:, rand_idx, :]
+            if self.mtp_aux_pos_enc:
+                slot_img_attn = slot_img_attn[:, rand_idx, :]
         # b. TODO: affinity topK
         if self.mtp_mask_idx_sample_mode.lower() == "txt_aff_topk":
             pass
@@ -244,8 +248,8 @@ class CrossModalAttentionRecon(nn.Module):
             pass
 
         # Make mix_tokens by concat 
-        mix_tokens = img_slot # (B, K+2, D)
-        # mix_tokens = torch.cat([img_slot, txt_emb, cm_feat], axis=1) # (B, K+2, D)
+        # mix_tokens = img_slot # (B, K, D)
+        mix_tokens = torch.cat([img_slot, txt_emb, cm_feat], axis=1) # (B, K+2, D)
         
         # Set orig_img_slot
         orig_img_slot_mode = 0 # {0: "only masked", 1: "all"}
@@ -265,10 +269,16 @@ class CrossModalAttentionRecon(nn.Module):
         elif mask_type == "noise" and std > 1e-4:
             std_tensor = torch.zeros(img_slot.shape[0], n_mask, img_slot.shape[2])
             std_tensor[...] = std
-            contamination = torch.normal(mean=0, std=std_tensor).to(dtype=img_slot.dtype, device=img_slot.device)
+            contamination = torch.normal(mean=0, std=std_tensor).to(img_slot.device)
             # contamination.requires_grad_(False) # TODO: 
             mix_tokens[:, :n_mask, :] = mix_tokens[:, :n_mask, :] + contamination
         
+        if self.mtp_aux_pos_enc:
+            h = w = int(slot_img_attn.shape[-1] ** 0.5) # TODO: now assuming the squared image
+            mtp_pos_enc = positionalencoding2d(d_model=D, height=h, width=w).reshape(D, -1).permute(1, 0)[None, :].to(img_slot.device) # (1, 1, N, D)
+            mtp_weighted_pos_enc = torch.mean(slot_img_attn[..., None] * mtp_pos_enc, dim=2) # (B, K, N, D) -> *(B, K, D)
+            mix_tokens[:, :-2] = mix_tokens[:, :-2] + mtp_weighted_pos_enc
+
         if self.mtp_mask_token_type == "concat":
             mix_tokens = torch.cat([mix_tokens, mask_tokens], axis=-1) # (B, K+2, D+1)
         elif self.mtp_mask_token_type == "add":

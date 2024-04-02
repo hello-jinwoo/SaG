@@ -56,7 +56,7 @@ def encode_data(model, data_loader, crop_size, img_num_embeds, embed_dim, args, 
             register_forward_hook(f_out_hook(cm_a_map))
         
         # compute the embeddings
-        cm_emb, img_emb, txt_emb, _, _, _ = model.forward(img, txt, txt_len)
+        cm_emb, img_emb, txt_emb, _, _, _, _ = model.forward(img, txt, txt_len)
         del img, txt, img_len, txt_len
         slot_a_map = rearrange(
             torch.cat(slot_a_map, dim=0), 

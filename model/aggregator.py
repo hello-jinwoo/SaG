@@ -201,13 +201,13 @@ class Aggregator(nn.Module):
             x = pn1(x)
             x = self_ff(x) + x
             x = pn2(x)
-
+        
         data = data if pos is None else data + pos
         for i, (cross_attn, pn1, cross_ff, pn2, self_attns) in enumerate(self.agg_blocks):
             is_gumbel = ((i == len(self.agg_blocks)-1) and (self.last_gumbel))
             if i == len(self.agg_blocks) - 1 and self.first_order:
                 x = x.detach()
-            out, attn = cross_attn(x, context = data, mask = mask, is_gumbel=is_gumbel, gumbel_tau=self.gumbel_tau)
+            out, img_attn = cross_attn(x, context = data, mask = mask, is_gumbel=is_gumbel, gumbel_tau=self.gumbel_tau)
             x = self.slot_update_fn(out, x)
             x = pn1(x)
             x = cross_ff(x) + x
@@ -221,9 +221,12 @@ class Aggregator(nn.Module):
                 x = self_ff(x) + x
                 x = pn2(x)
                 x = rearrange(x, '(b c) k d -> b (c k) d', c=self.num_latents//self.queries.cascade_factor)
-                
+
         attn = rearrange(attn, '(bs h) n d -> bs h n d', h=self.cross_heads)
         attn = reduce(attn, 'bs h n d -> bs n d', 'mean')
         x = self.decoder_output_holder(x)
+
+        img_attn = rearrange(img_attn, '(bs h) k n -> bs h k n', h=self.cross_heads)
+        img_attn = reduce(img_attn, 'bs h k n -> bs k n', 'mean')
         
-        return self.last_layer(x), attn
+        return self.last_layer(x), attn, img_attn

@@ -55,7 +55,7 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
             img, txt, txt_len = img.cuda(), txt.cuda(), txt_len.cuda()
 
         with torch.cuda.amp.autocast(enabled=args.amp):
-            cm_feat, img_emb, txt_emb, img_feat_recon, img_feat, txt_bert = model.forward(img, txt, txt_len) 
+            cm_feat, img_emb, txt_emb, img_feat_recon, img_feat, txt_bert, slot_img_attn = model.forward(img, txt, txt_len) 
             # MTP
             mtp_init_epoch = args.mtp_init_epoch
             mtp_static_noise = args.mtp_static_noise # True/False
@@ -72,7 +72,7 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
                     if mtp_noise_step == -1:
                         mtp_noise_step = mtp_noise_max / (args.num_epochs - mtp_init_epoch)
                     contamination_std = min(mtp_noise_step * epoch-(mtp_init_epoch), mtp_noise_max)
-            recon_img_slot, orig_img_slot = model.masked_token_prediction(img_emb, txt_emb.detach().clone(), cm_feat.detach().clone(), r_mask, mtp_mask_type, contamination_std)
+            recon_img_slot, orig_img_slot = model.masked_token_prediction(img_emb, txt_emb.detach().clone(), cm_feat.detach().clone(), slot_img_attn, r_mask, mtp_mask_type, contamination_std)
             if itr == 0:
                 print("@@ norm of img_slot:", torch.mean(torch.norm(img_emb, dim=-1)))
                 print("@@ norm of txt_emb:", torch.mean(torch.norm(txt_emb, dim=-1)))
@@ -176,7 +176,7 @@ def validation(epoch, data_loader, model, criterion, recon_criterion, recon_weig
             img, txt, txt_len = img.cuda(), txt.cuda(), txt_len.cuda()
             
             with torch.cuda.amp.autocast(enabled=args.amp):
-                cm_feat, img_emb, txt_emb, img_feat_recon, img_feat, txt_bert = model.forward(img, txt, txt_len) 
+                cm_feat, img_emb, txt_emb, img_feat_recon, img_feat, txt_bert, slot_img_attn = model.forward(img, txt, txt_len) 
                 # # MTP
                 # recon_img_slot, orig_img_slot = model.masked_token_prediction(img_emb, txt_emb, cm_feat, 4)
 

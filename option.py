@@ -164,6 +164,8 @@ parser.add_argument('--mtp_mask_type', default="zero", choices=('zero', 'noise')
 parser.add_argument('--mtp_mask_ratio', default=0.1, type=float)
 parser.add_argument('--mtp_pred_target', default="masked", choices=('masked', 'all'))
 parser.add_argument('--mtp_tpa_type', default="self", choices=('self', 'cross'))
+parser.add_argument('--mtp_aux_pos_enc', action='store_true')
+
 
 def verify_input_args(args):
     # Process input arguments

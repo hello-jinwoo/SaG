@@ -150,7 +150,7 @@ class SetPredictionModule(nn.Module):
         )
         
     def forward(self, local_feat, global_feat=None, pad_mask=None, txt_emb=None):
-        set_prediction, attn = self.agg(local_feat, mask=pad_mask, txt_emb=txt_emb) 
+        set_prediction, attn, slot_img_attn = self.agg(local_feat, mask=pad_mask, txt_emb=txt_emb) 
 
         if global_feat is not None and self.use_residual:
             global_feat = global_feat.unsqueeze(1).repeat(1, self.num_embeds, 1)
@@ -158,7 +158,7 @@ class SetPredictionModule(nn.Module):
         else:
             out = self.residual_norm(set_prediction)
     
-        return out, attn, set_prediction
+        return out, attn, set_prediction, slot_img_attn
 
 
 class ImageTextEncoders(nn.Module):
@@ -172,8 +172,8 @@ class ImageTextEncoders(nn.Module):
     def forward(self, images, sentences, txt_len):
         with torch.cuda.amp.autocast(enabled=self.amp):
             txt_emb, txt_attn, txt_residual, bert_emb = self.txt_enc(Variable(sentences), txt_len)
-            img_slot, img_feat, img_attn, img_residual = self.img_enc(Variable(images))
-            return img_slot, txt_emb, img_attn, txt_attn, img_residual, txt_residual, bert_emb
+            img_slot, img_feat, img_attn, img_residual, slot_img_attn = self.img_enc(Variable(images))
+            return img_slot, txt_emb, img_attn, txt_attn, img_residual, txt_residual, bert_emb, slot_img_attn
 
 
 class ImageTextEncodersRecon(nn.Module):
@@ -189,8 +189,8 @@ class ImageTextEncodersRecon(nn.Module):
     def forward(self, images, sentences, txt_len):
         with torch.cuda.amp.autocast(enabled=self.amp):
             txt_emb, words_emb, txt_residual, bert_emb = self.txt_enc(Variable(sentences), txt_len)
-            img_slot, img_feat, img_attn, img_residual = self.img_enc(Variable(images), txt_emb=txt_emb if self.slot_cond else None)
-            return img_slot, img_feat, txt_emb, words_emb, img_residual, txt_residual, bert_emb
+            img_slot, img_feat, img_attn, img_residual, slot_img_attn = self.img_enc(Variable(images), txt_emb=txt_emb if self.slot_cond else None)
+            return img_slot, img_feat, txt_emb, words_emb, img_residual, txt_residual, bert_emb, slot_img_attn
 
 
 class TextIdentity(nn.Module):
@@ -255,13 +255,13 @@ class EncoderImage(nn.Module):
     def forward(self, images, txt_emb=None):
         out_nxn = self.img_backbone(images)[:, 1:, :]
         out_nxn = rearrange(out_nxn, 'b (h w) d -> b h w d', h=self.num_patches, w=self.num_patches)
-        out, attn, residual = self.set_pred_module(
+        out, attn, residual, slot_img_attn = self.set_pred_module(
             local_feat=self.spm_1x1(out_nxn), 
             global_feat=self.global_feat_holder(self.residual_connection(out_nxn, None)),
             pad_mask=None,
             txt_emb=txt_emb
         )
-        return out, rearrange(out_nxn, 'b ... d -> b (...) d'), attn, residual
+        return out, rearrange(out_nxn, 'b ... d -> b (...) d'), attn, residual, slot_img_attn
 
     
 class EncoderTextBERT(nn.Module):
