@@ -161,10 +161,14 @@ class CrossModalAttentionRecon(nn.Module):
                 last_fc=args.cma_last_fc
             )
         elif self.mtp_tpa_type == "cross":
+            if self.mtp_mask_token_type == "add":
+                tpa_dim = in_dim
+            elif self.mtp_mask_token_type == "concat":
+                tpa_dim = in_dim + 1
             self.tpa_cross = TransformerLayer(
-                query_dim=in_dim,
-                ff_dim=in_dim,
-                context_dim=in_dim,
+                query_dim=tpa_dim,
+                ff_dim=tpa_dim,
+                context_dim=tpa_dim,
                 heads=args.cma_heads,
                 dim_head=args.cma_head_dim,
                 dropout=args.dropout,
